@@ -1,0 +1,12 @@
+
+*.a
+
+*.db
+
+*.yaml
+
+*.o
+
+*.swiftdoc
+
+*.swiftmodule
