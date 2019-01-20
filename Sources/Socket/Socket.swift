@@ -63,15 +63,15 @@ public protocol SocketWritable: Socket {
 }
 
 public protocol POSIXSocket: Socket {
-
-    typealias SocketType = CInt
+    associatedtype SocketType = CInt
 
     static func createSocket(proto: CInt, type: CInt, blocking: Bool) throws -> Self
 
     var maxConnection: CInt { get }
+    init(socket: CInt)
 }
 
-public extension POSIXSocket {
+public extension POSIXSocket where SocketType == CInt {
     static func createSocket(proto: CInt = AF_INET, type: CInt = SOCK_STREAM, blocking: Bool = false) throws -> Self {
         var target = type
         #if os(Linux)
@@ -105,11 +105,11 @@ public extension POSIXSocket {
 
     func close() throws {
         shutdown(socket, SHUT_RDWR)
-        posixClose(socket)
+        _ = posixClose(socket)
     }
 }
 
-extension SocketListening where Self: POSIXSocket {
+extension SocketListening where Self: POSIXSocket, SocketType == CInt {
     func listen() throws {
         if posixListen(socket, maxConnection) == -1 {
             throw SWTSocketListeningError.RequestNotAccept
@@ -119,8 +119,8 @@ extension SocketListening where Self: POSIXSocket {
     func accept() throws -> Self {
         var socketIn = sockaddr_in()
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
-        var incoming: CInt
-        try UnsafeMutablePointer.withMemoryRebound(&socketIn)(to: sockaddr.self, capacity: 1, { ptr in
+        var incoming: CInt = -1
+        UnsafeMutablePointer.withMemoryRebound(&socketIn)(to: sockaddr.self, capacity: 1, { ptr in
             #if os(Linux)
             // Use accept4 when available to prevent posix block
             incoming = Linux.accept4(socket, ptr, &size)
@@ -135,20 +135,20 @@ extension SocketListening where Self: POSIXSocket {
     }
 }
 
-extension SocketReadable where Self: POSIXSocket {
+extension SocketReadable where Self: POSIXSocket, SocketType == CInt {
     public func read(chunk: Int) -> UnsafeMutableRawBufferPointer {
-        let pointer = UnsafeMutableRawBufferPointer.allocate(count: chunk)
-        posixRead(socket, pointer.baseAddress!, chunk)
+        let pointer = UnsafeMutableRawBufferPointer.allocate(byteCount: chunk, alignment: MemoryLayout.size(ofValue: UInt8.self))
+        _ = posixRead(socket, pointer.baseAddress!, chunk)
         return pointer
     }
 }
 
-extension SocketWritable where Self: POSIXSocket {
+extension SocketWritable where Self: POSIXSocket, SocketType == CInt {
     public func write(data: UnsafeRawBufferPointer) throws {
         guard let baseAddress = data.baseAddress, data.count > 0 else {
             throw SWTSocketWritingError.NoData(0)
         }
         // TODO: handle EINTR later
-        posixWrite(socket, baseAddress, data.count)
+        _ = posixWrite(socket, baseAddress, data.count)
     }
 }
