@@ -31,6 +31,8 @@ import Darwin.C
 let posixSocket = socket
 let posixBind = bind
 let posixClose = close
+let posixListen = listen
+let posixAccept = accept
 
 public typealias CSocket = CInt
 
@@ -47,8 +49,14 @@ public protocol Socket {
     func close() throws
 }
 
-public protocol POSIXSocket: Socket {
+public protocol SocketListening {
+    func listen()
+    func accept() throws -> SocketListening
+}
+
+public protocol POSIXSocket: Socket, SocketListening {
     typealias SocketType = CInt
+    var maxConnection: CInt { get }
 }
 
 public extension POSIXSocket {
@@ -86,5 +94,31 @@ public extension POSIXSocket {
     func close() throws {
         shutdown(socket, SHUT_RDWR)
         posixClose(socket)
+    }
+}
+
+extension POSIXSocket {
+    func listen() throws {
+        if posixListen(socket, maxConnection) == -1 {
+            throw SWTSocketListeningError.RequestNotAccept
+        }
+    }
+
+    func accept() throws -> Self {
+        var socketIn = sockaddr_in()
+        var size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        var incoming: CInt
+        try UnsafeMutablePointer.withMemoryRebound(&socketIn)(to: sockaddr.self, capacity: 1, { ptr in
+            #if os(Linux)
+            // Use accept4 when available to prevent posix block
+            incoming = Linux.accept4(socket, ptr, &size)
+            #else
+            incoming = posixAccept(socket, ptr, &size)
+            #endif
+        })
+        if incoming < 0 {
+            throw SWTSocketListeningError.RequestNotAccept
+        }
+        return Self.init(socket: incoming)
     }
 }
