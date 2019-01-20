@@ -21,3 +21,70 @@
 //  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
+
+#if os(Linux)
+import Glibc
+#else
+import Darwin.C
+#endif
+
+let posixSocket = socket
+let posixBind = bind
+let posixClose = close
+
+public typealias CSocket = CInt
+
+public protocol Socket {
+    associatedtype SocketType
+
+    static func createSocket(proto: CInt, type: CInt, blocking: Bool) throws -> Self
+
+    var socket: SocketType { get }
+
+    init(socket: SocketType)
+
+    func bind(ip: String, port: UInt8) throws
+    func close() throws
+}
+
+public protocol POSIXSocket: Socket {
+    typealias SocketType = CInt
+}
+
+public extension POSIXSocket {
+    static func createSocket(proto: CInt = AF_INET, type: CInt = SOCK_STREAM, blocking: Bool = false) throws -> Self {
+        var target = type
+        #if os(Linux)
+        if !blocking {
+            target = type | Linux.SOCK_NONBLOCK
+        }
+        #endif
+        let socket = posixSocket(proto, target, 0)
+        if proto == AF_INET6 {
+            let socklen = socklen_t(MemoryLayout.size(ofValue: CInt.self))
+            setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, nil, socklen)
+        }
+        return Self.init(socket: socket)
+    }
+
+    func bind(ip: String, port: UInt8) throws {
+        var addr = sockaddr_in()
+        addr.sin_len = __uint8_t(MemoryLayout.size(ofValue: sockaddr_in.self))
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr(ip)
+        addr.sin_port = in_port_t(port).bigEndian
+        addr.sin_zero = (0, 0, 0, 0, 0, 0, 0, 0)
+        var socketAddr = sockaddr()
+        memcpy(&socketAddr, &addr, MemoryLayout.size(ofValue: sockaddr_in.self))
+        let len = socklen_t(MemoryLayout.size(ofValue: sockaddr_in.self))
+        if posixBind(socket, &socketAddr, len) == -1 {
+            try close()
+            throw SWTSocketCreateError.BindError
+        }
+    }
+
+    func close() throws {
+        shutdown(socket, SHUT_RDWR)
+        posixClose(socket)
+    }
+}
