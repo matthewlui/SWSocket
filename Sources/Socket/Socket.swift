@@ -39,8 +39,6 @@ public typealias CSocket = CInt
 public protocol Socket {
     associatedtype SocketType
 
-    static func createSocket(proto: CInt, type: CInt, blocking: Bool) throws -> Self
-
     var socket: SocketType { get }
 
     init(socket: SocketType)
@@ -55,7 +53,11 @@ public protocol SocketListening {
 }
 
 public protocol POSIXSocket: Socket, SocketListening {
+
     typealias SocketType = CInt
+
+    static func createSocket(proto: CInt, type: CInt, blocking: Bool) throws -> Self
+
     var maxConnection: CInt { get }
 }
 
