@@ -1,5 +1,5 @@
 //
-//  SWTSocket.swift
+//  Socket.swift
 //  Sweet
 //
 //  Copyright (c) <2015> <Matthew Lui>
@@ -29,59 +29,60 @@ import Darwin.C
 #endif
 
 //MARK: Errors' declaration
-enum SWTSocketCreateError:ErrorType{
+enum SWTSocketCreateError: Error {
     case PortError
     case BindError
     case SocketSettingError
 }
 
-enum SWTSocketWritingError:ErrorType{
+enum SWTSocketWritingError: Error {
     case SocketNotExist(CInt)
     case NoData(CInt)
 }
 
-enum SWTSocketListeningError:ErrorType{
+enum SWTSocketListeningError: Error {
     case RequestNotAccept
 }
 
 //MARK: SWTSocketWriting
-public protocol SWTSocketWriting{
+public protocol SWTSocketWriting {
     /// Write string to client socket,
     /// may throw error:SWTSocketError
-    static func writeString(to socket:CInt, string:String) throws
+    static func writeString(to socket: CInt, string: String) throws
     /// Write Data (represented by [UInt8]) to client socket,
     /// may throw error:SWTSocketError
-    static func writeData(to socket:CInt, data:UnsafePointer<Void>,size:Int) throws
+    static func writeData(to socket: CInt, data: UnsafeRawPointer, size: Int) throws
 }
 
-extension SWTSocketWriting{
+extension SWTSocketWriting {
     //TODO: Error handle code there to prevent write on dead socket continuously.
-    public static func writeString(to socket:CInt, string:String) throws {
+    public static func writeString(to socket: CInt, string: String) throws {
         //TODO: Slice down the string into a write loop for future support.
-        if string == ""{
+        if string == "" {
             throw SWTSocketWritingError.NoData(socket)
         }
         write(socket, string, Int(string.utf8.count))
     }
-    public static func writeData(to socket:CInt, data:UnsafePointer<Void>,size:Int) throws {
+
+    public static func writeData(to socket: CInt, data: UnsafeRawPointer, size: Int) throws {
         write(socket, data, size)
     }
 }
 
 //MARK: SWTSocketListening
-public protocol SWTSocketListening{
+public protocol SWTSocketListening {
     /// Wait for client connection, may throw error:SWTSocketError
-    static func acceptClient(socket:CInt) -> CInt?
+    static func acceptClient(socket: CInt) -> CInt?
 }
 
-extension SWTSocketListening{
+extension SWTSocketListening {
     //TODO :Fix crash on 56000 call
     /// Pass in socket to listen.
     /// - Warning: Use Posix accept witch will block.
     /// throw SWTSocketListeningError
-    public static func acceptClient(socket:CInt) -> CInt?{
-        var addr = sockaddr(sa_len: 0, sa_family: 0, sa_data: (0,0,0,0,0,0,0,0,0,0,0,0,0,0))
-        var len:socklen_t = 0
+    public static func acceptClient(socket: CInt) -> CInt? {
+        var addr = sockaddr(sa_len: 0, sa_family: 0, sa_data: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        var len: socklen_t = 0
         let client = accept(socket, &addr, &len)
         if client < 0 {
             //TODO: throw
@@ -92,72 +93,71 @@ extension SWTSocketListening{
 }
 
 //MARK: SWTSocketRequestHeader
-public protocol SWTSocketRequestHeaderRecieving{
-    static func recieve(socket:CInt) -> String
+public protocol SWTSocketRequestHeaderRecieving {
+    static func recieve(socket: CInt) -> String
 }
 
-extension SWTSocketRequestHeaderRecieving{
+extension SWTSocketRequestHeaderRecieving {
     //TODO: fine tune for more concurrent calls
     /// Retrieve request header.
     /// Views
-    public static func recieve(socket:CInt) -> String{
+    public static func recieve(socket: CInt) -> String {
         var chars: [UInt8]
         var string = ""
-        repeat{
+        repeat {
             //TODO: Clean up after testing UTF-8 support
-            chars = [UInt8](count: 128, repeatedValue: 0)
+            chars = [UInt8](repeating: 0, count: 128)
             read(socket, &chars, chars.count)
             var s2 = ""
             chars.forEach({ (char) -> () in
-                s2.append(UnicodeScalar(char))
+                s2.append(Character(UnicodeScalar(char)))
             })
             string += s2
-        }while chars.last! != 0
-        chars = [UInt8](count: 256, repeatedValue: 0)
+        } while chars.last! != 0
         return string
     }
 }
 
 //MARK: SWTSocketConnecting
-public protocol SWTSocketConnection{
-    static var max_connection:Int32 {get set}
+public protocol SWTSocketConnection {
+    static var max_connection: Int32 { get set }
     /// Create a socket for server to listen,
     /// may throw error:SWTSocketError
-    static func createSocket(ip:String,port:Int) throws -> CInt
+    static func createSocket(ip: String, port: Int) throws -> CInt
 }
 
-extension SWTSocketConnection{
+extension SWTSocketConnection {
     /// Create a socket bond to ip and port.
     /// - Returns: A socket represent by CInt or throw: SWTSocketCreateError
-    public static func createSocket(ip:String = "0.0.0.0",port:Int = 8080) throws -> CInt{
+    public static func createSocket(ip: String = "0.0.0.0", port: Int = 8080) throws -> CInt {
         let s = socket(AF_INET, SOCK_STREAM, 0)
-        if s < 0{
+        if s < 0 {
             throw SWTSocketCreateError.PortError
         }
 
         //TODO: fcntl(sockfd,F_SETFL,O_NONBLOCK) find instead in OSX
-        var flag:Int32 = 1
-        if setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &flag, socklen_t(sizeof(Int32))) == -1 {
+        var flag: Int32 = 1
+        if setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &flag, socklen_t(MemoryLayout.size(ofValue: Int32.self))) == -1 {
             shutdown(s, SHUT_RDWR)
             close(s)
             throw SWTSocketCreateError.SocketSettingError
         }
 
         var addr = sockaddr_in()
-        addr.sin_len = __uint8_t(sizeof(sockaddr_in))
+        addr.sin_len = __uint8_t(MemoryLayout.size(ofValue: sockaddr_in.self))
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_addr.s_addr = inet_addr(ip)
         addr.sin_port = in_port_t(port).bigEndian
-        addr.sin_zero = (0,0,0,0,0,0,0,0)
+        addr.sin_zero = (0, 0, 0, 0, 0, 0, 0, 0)
         var socketAddr = sockaddr()
-        memcpy(&socketAddr, &addr, sizeof(sockaddr_in))
-        let len = socklen_t(sizeof(sockaddr_in))
+        memcpy(&socketAddr, &addr, MemoryLayout.size(ofValue: sockaddr_in.self))
+        let len = socklen_t(MemoryLayout.size(ofValue: sockaddr_in.self))
         if bind(s, &socketAddr, len) == -1 {
             shutdown(s, SHUT_RDWR)
             close(s)
             throw SWTSocketCreateError.BindError
         }
-        if listen(s, max_connection) == -1{
+        if listen(s, max_connection) == -1 {
             shutdown(s, SHUT_RDWR)
             close(s)
             throw SWTSocketCreateError.SocketSettingError
@@ -167,11 +167,12 @@ extension SWTSocketConnection{
 }
 
 //MARK: SWTSocketEndSocket
-public protocol SWTSocketReleasing{
-    static func release(socket:CInt)
+public protocol SWTSocketReleasing {
+    static func release(socket: CInt)
 }
-extension SWTSocketReleasing{
-    public static func release(socket:CInt) {
+
+extension SWTSocketReleasing {
+    public static func release(socket: CInt) {
         shutdown(socket, SHUT_RDWR)
         close(socket)
     }
@@ -181,4 +182,9 @@ extension SWTSocketReleasing{
 /// Protocol include all needed Socket services function.
 /// Use to define Swift tailor HTTP service protocol.
 /// Default extension are all writen by supporting of POSIX
-public typealias SWTSocketService = protocol<SWTSocketConnection,SWTSocketListening,SWTSocketRequestHeaderRecieving,SWTSocketWriting,SWTSocketReleasing>
+public typealias SWTSocketService =
+        SWTSocketConnection &
+        SWTSocketListening &
+        SWTSocketRequestHeaderRecieving &
+        SWTSocketWriting &
+        SWTSocketReleasing
