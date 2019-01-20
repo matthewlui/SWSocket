@@ -33,6 +33,8 @@ let posixBind = bind
 let posixClose = close
 let posixListen = listen
 let posixAccept = accept
+let posixRead = read
+let posixWrite = write
 
 public typealias CSocket = CInt
 
@@ -52,7 +54,15 @@ public protocol SocketListening {
     func accept() throws -> SocketListening
 }
 
-public protocol POSIXSocket: Socket, SocketListening {
+public protocol SocketReadable {
+    func read(chunk: Int) -> UnsafeMutableRawBufferPointer
+}
+
+public protocol SocketWritable {
+    func write(data: UnsafeRawBufferPointer)
+}
+
+public protocol POSIXSocket: Socket, SocketListening, SocketReadable, SocketWritable {
 
     typealias SocketType = CInt
 
@@ -122,5 +132,23 @@ extension POSIXSocket {
             throw SWTSocketListeningError.RequestNotAccept
         }
         return Self.init(socket: incoming)
+    }
+}
+
+extension POSIXSocket {
+    public func read(chunk: Int) -> UnsafeMutableRawBufferPointer {
+        let pointer = UnsafeMutableRawBufferPointer.allocate(count: chunk)
+        posixRead(socket, pointer.baseAddress!, chunk)
+        return pointer
+    }
+}
+
+extension POSIXSocket {
+    public func write(data: UnsafeRawBufferPointer) throws {
+        guard let baseAddress = data.baseAddress, data.count > 0 else {
+            throw SWTSocketWritingError.NoData(0)
+        }
+        // TODO: handle EINTR later
+        posixWrite(socket, baseAddress, data.count)
     }
 }
