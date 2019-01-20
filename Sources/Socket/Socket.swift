@@ -49,20 +49,20 @@ public protocol Socket {
     func close() throws
 }
 
-public protocol SocketListening {
+public protocol SocketListening: Socket {
     func listen()
-    func accept() throws -> SocketListening
+    func accept() throws -> Self
 }
 
-public protocol SocketReadable {
+public protocol SocketReadable: Socket {
     func read(chunk: Int) -> UnsafeMutableRawBufferPointer
 }
 
-public protocol SocketWritable {
+public protocol SocketWritable: Socket {
     func write(data: UnsafeRawBufferPointer)
 }
 
-public protocol POSIXSocket: Socket, SocketListening, SocketReadable, SocketWritable {
+public protocol POSIXSocket: Socket {
 
     typealias SocketType = CInt
 
@@ -109,7 +109,7 @@ public extension POSIXSocket {
     }
 }
 
-extension POSIXSocket {
+extension SocketListening where Self: POSIXSocket {
     func listen() throws {
         if posixListen(socket, maxConnection) == -1 {
             throw SWTSocketListeningError.RequestNotAccept
@@ -135,7 +135,7 @@ extension POSIXSocket {
     }
 }
 
-extension POSIXSocket {
+extension SocketReadable where Self: POSIXSocket {
     public func read(chunk: Int) -> UnsafeMutableRawBufferPointer {
         let pointer = UnsafeMutableRawBufferPointer.allocate(count: chunk)
         posixRead(socket, pointer.baseAddress!, chunk)
@@ -143,7 +143,7 @@ extension POSIXSocket {
     }
 }
 
-extension POSIXSocket {
+extension SocketWritable where Self: POSIXSocket {
     public func write(data: UnsafeRawBufferPointer) throws {
         guard let baseAddress = data.baseAddress, data.count > 0 else {
             throw SWTSocketWritingError.NoData(0)
